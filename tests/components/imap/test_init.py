@@ -11,7 +11,7 @@ import pytest
 from homeassistant.components.imap import DOMAIN
 from homeassistant.components.imap.const import CONF_CHARSET
 from homeassistant.components.imap.errors import InvalidAuth, InvalidFolder
-from homeassistant.components.sensor.const import SensorStateClass
+from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
@@ -29,6 +29,7 @@ from .const import (
     TEST_FETCH_RESPONSE_MULTIPART,
     TEST_FETCH_RESPONSE_MULTIPART_BASE64,
     TEST_FETCH_RESPONSE_MULTIPART_BASE64_INVALID,
+    TEST_FETCH_RESPONSE_MULTIPART_EMPTY_PLAIN,
     TEST_FETCH_RESPONSE_NO_SUBJECT_TO_FROM,
     TEST_FETCH_RESPONSE_TEXT_BARE,
     TEST_FETCH_RESPONSE_TEXT_OTHER,
@@ -76,7 +77,7 @@ async def test_entry_startup_and_unload(
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    assert await config_entry.async_unload(hass)
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
 
 
 @pytest.mark.parametrize(
@@ -116,6 +117,7 @@ async def test_entry_startup_fails(
         (TEST_FETCH_RESPONSE_TEXT_OTHER, True),
         (TEST_FETCH_RESPONSE_HTML, True),
         (TEST_FETCH_RESPONSE_MULTIPART, True),
+        (TEST_FETCH_RESPONSE_MULTIPART_EMPTY_PLAIN, True),
         (TEST_FETCH_RESPONSE_MULTIPART_BASE64, True),
         (TEST_FETCH_RESPONSE_BINARY, True),
     ],
@@ -129,6 +131,7 @@ async def test_entry_startup_fails(
         "other",
         "html",
         "multipart",
+        "multipart_empty_plain",
         "multipart_base64",
         "binary",
     ],
@@ -150,7 +153,7 @@ async def test_receiving_message_successfully(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have received one message
     assert state is not None
     assert state.state == "1"
@@ -199,7 +202,7 @@ async def test_receiving_message_with_invalid_encoding(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have received one message
     assert state is not None
     assert state.state == "1"
@@ -234,7 +237,7 @@ async def test_receiving_message_no_subject_to_from(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have received one message
     assert state is not None
     assert state.state == "1"
@@ -270,7 +273,7 @@ async def test_initial_authentication_error(
     assert await hass.config_entries.async_setup(config_entry.entry_id) == success
     await hass.async_block_till_done()
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     assert (state is not None) == success
 
 
@@ -287,7 +290,7 @@ async def test_initial_invalid_folder_error(
     assert await hass.config_entries.async_setup(config_entry.entry_id) == success
     await hass.async_block_till_done()
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     assert (state is not None) == success
 
 
@@ -327,7 +330,7 @@ async def test_late_authentication_retry(
     assert "Authentication failed, retrying" in caplog.text
 
     # we still should have an entity with an unavailable state
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     assert state is not None
     assert state.state == STATE_UNAVAILABLE
 
@@ -368,7 +371,7 @@ async def test_late_authentication_error(
     assert "Username or password incorrect, starting reauthentication" in caplog.text
 
     # we still should have an entity with an unavailable state
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     assert state is not None
     assert state.state == STATE_UNAVAILABLE
 
@@ -412,7 +415,7 @@ async def test_late_folder_error(
     assert "Selected mailbox folder is invalid" in caplog.text
 
     # we still should have an entity with an unavailable state
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     assert state is not None
     assert state.state == STATE_UNAVAILABLE
 
@@ -441,7 +444,7 @@ async def test_handle_cleanup_exception(
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have an entity
     assert state is not None
     assert state.state == "0"
@@ -449,11 +452,11 @@ async def test_handle_cleanup_exception(
     # Fail cleaning up
     mock_imap_protocol.close.side_effect = imap_close
 
-    assert await config_entry.async_unload(hass)
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
     await hass.async_block_till_done()
     assert "Error while cleaning up imap connection" in caplog.text
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
 
     # we should have an entity with an unavailable state
     assert state is not None
@@ -484,7 +487,7 @@ async def test_lost_connection_with_imap_push(
     await hass.async_block_till_done()
     assert "Lost imap.server.com (will attempt to reconnect after 10 s)" in caplog.text
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # Our entity should keep its current state as this
     assert state is not None
     assert state.state == "0"
@@ -508,7 +511,7 @@ async def test_fetch_number_of_messages(
     await hass.async_block_till_done()
     assert "Invalid response for search" in caplog.text
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have an entity with an unavailable state
     assert state is not None
     assert state.state == STATE_UNAVAILABLE
@@ -553,7 +556,7 @@ async def test_reset_last_message(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # We should have received one message
     assert state is not None
     assert state.state == "1"
@@ -587,7 +590,7 @@ async def test_reset_last_message(
 
     await hass.async_block_till_done()
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # We should have message
     assert state is not None
     assert state.state == "0"
@@ -604,7 +607,7 @@ async def test_reset_last_message(
 
     await hass.async_block_till_done()
 
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # We should have received one message
     assert state is not None
     assert state.state == "1"
@@ -634,7 +637,7 @@ async def test_event_skipped_message_too_large(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # We should have received one message
     assert state is not None
     assert state.state == "1"
@@ -664,7 +667,7 @@ async def test_message_is_truncated(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # We should have received one message
     assert state is not None
     assert state.state == "1"
@@ -699,7 +702,7 @@ async def test_message_data(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # We should have received one message
     assert state is not None
     assert state.state == "1"
@@ -744,7 +747,7 @@ async def test_custom_template(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have received one message
     assert state is not None
     assert state.state == "1"
@@ -795,7 +798,7 @@ async def test_enforce_polling(
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have received one message
     assert state is not None
     assert state.state == "1"
@@ -835,7 +838,7 @@ async def test_services(hass: HomeAssistant, mock_imap_protocol: MagicMock) -> N
     # Make sure we have had one update (when polling)
     async_fire_time_changed(hass, utcnow() + timedelta(seconds=5))
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.imap_email_email_com")
+    state = hass.states.get("sensor.imap_email_email_com_messages")
     # we should have received one message
     assert state is not None
     assert state.state == "1"
